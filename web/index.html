@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>spanjudge</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background:#080a0d; color:#f2f5f7; }
+    * { box-sizing:border-box; }
+    body { margin:0; }
+    header { height:64px; display:flex; align-items:center; justify-content:space-between; padding:0 28px; border-bottom:1px solid #20252c; background:#0d1014; }
+    h1 { font-size:18px; letter-spacing:0; margin:0; }
+    .status { color:#72e6b1; font:12px ui-monospace, monospace; }
+    main { max-width:1180px; margin:auto; padding:30px 24px 60px; }
+    .eyebrow { color:#8c98a5; font:12px ui-monospace, monospace; text-transform:uppercase; }
+    h2 { font-size:30px; margin:8px 0 24px; }
+    .metrics { display:grid; grid-template-columns:repeat(4,1fr); border:1px solid #252b33; background:#10141a; }
+    .metric { padding:20px; border-right:1px solid #252b33; }
+    .metric:last-child { border-right:0; }
+    .metric span { display:block; color:#8c98a5; font-size:12px; margin-bottom:8px; }
+    .metric strong { font:24px ui-monospace, monospace; }
+    section { margin-top:28px; border:1px solid #252b33; background:#10141a; }
+    section h3 { font-size:14px; margin:0; padding:16px 18px; border-bottom:1px solid #252b33; }
+    table { width:100%; border-collapse:collapse; font:13px ui-monospace, monospace; }
+    th, td { padding:13px 18px; text-align:left; border-bottom:1px solid #1d2229; }
+    th { color:#8c98a5; font-weight:500; }
+    .bad { color:#ff7b72; } .good { color:#72e6b1; }
+    @media (max-width:760px) { .metrics { grid-template-columns:1fr 1fr; } .metric:nth-child(2){border-right:0}.metric{border-bottom:1px solid #252b33} section{overflow:auto} }
+  </style>
+</head>
+<body>
+  <header><h1>spanjudge</h1><span class="status">collector online</span></header>
+  <main>
+    <div class="eyebrow">Agent trace regression gate</div>
+    <h2>Production behavior, replayed before release.</h2>
+    <div class="metrics" id="metrics"></div>
+    <section><h3>Recent traces</h3><table><thead><tr><th>Trace</th><th>Latency</th><th>Spans</th><th>Tools</th><th>Tokens</th><th>Eval</th></tr></thead><tbody id="traces"></tbody></table></section>
+  </main>
+  <script>
+    const fmt = (value, suffix='') => value == null ? 'n/a' : `${value}${suffix}`;
+    Promise.all([fetch('/api/summary').then(r=>r.json()), fetch('/api/traces').then(r=>r.json())]).then(([s,traces]) => {
+      const metrics = [['Traces',s.trace_count],['p95 latency',fmt(s.p95_latency_ms,' ms')],['Error rate',fmt((s.error_rate*100).toFixed(1),'%')],['Avg eval',fmt(s.avg_eval_score)]];
+      document.querySelector('#metrics').innerHTML = metrics.map(([k,v])=>`<div class="metric"><span>${k}</span><strong>${v}</strong></div>`).join('');
+      document.querySelector('#traces').innerHTML = traces.map(t=>`<tr><td>${t.trace_id.slice(0,12)}</td><td>${t.duration_ms} ms</td><td>${t.span_count}</td><td>${t.tool_calls}</td><td>${t.input_tokens+t.output_tokens}</td><td class="${t.eval_score >= .8 ? 'good':'bad'}">${fmt(t.eval_score)}</td></tr>`).join('');
+    });
+  </script>
+</body>
+</html>

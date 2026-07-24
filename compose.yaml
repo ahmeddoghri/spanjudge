@@ -1,0 +1,7 @@
+services:
+  spanjudge:
+    build: .
+    ports: ["4318:4318"]
+    volumes: ["spanjudge-data:/data"]
+volumes:
+  spanjudge-data:
