@@ -54,6 +54,25 @@ OpenTelemetry's GenAI semantic conventions now define agent invocation, tool exe
 - [OpenTelemetry GenAI attribute registry](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/)
 - [OpenTelemetry GenAI semantic-conventions repository](https://github.com/open-telemetry/semantic-conventions/tree/main/docs/gen-ai)
 
+## Update: fixed a cross-trace span_id collision that silently dropped traces
+
+`TraceStore`'s SQLite schema used `span_id` alone as the primary key. The
+OTLP spec only guarantees span_id uniqueness *within* a trace, not
+globally — so two different traces that happened to reuse the same
+span_id would silently overwrite each other's row on ingest, with no
+error anywhere in the path. One trace's spans, cost, latency, and
+evaluation data would simply vanish from the store. In a release-gating
+tool, that means `evaluate` could pass a policy check against incomplete
+or wrong data without any indication something was dropped.
+
+Fixed by keying the table on `(trace_id, span_id)` instead, matching what
+the spec actually guarantees. A startup migration detects and safely
+upgrades any pre-existing database still using the old single-column
+primary key, preserving existing rows in place. `tests/test_trace_id_collision.py`
+covers the original collision, the fix, that legitimate same-trace span
+re-ingestion (e.g. a client retry) still works, and that the legacy-schema
+migration is correct and idempotent.
+
 ## Scope
 
 This is an OTLP/HTTP JSON trace receiver and evaluation workbench, not a full OpenTelemetry Collector distribution. Content-bearing attributes may contain sensitive data; production deployments should apply redaction, authentication, retention, and transport security before ingestion.

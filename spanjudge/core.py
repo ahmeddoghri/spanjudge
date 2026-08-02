@@ -65,21 +65,61 @@ class TraceStore:
         self.connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         with self._lock:
+            self._migrate_legacy_schema()
             self.connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS spans (
                     trace_id TEXT NOT NULL,
-                    span_id TEXT PRIMARY KEY,
+                    span_id TEXT NOT NULL,
                     parent_span_id TEXT NOT NULL,
                     name TEXT NOT NULL,
                     start_ns INTEGER NOT NULL,
                     end_ns INTEGER NOT NULL,
                     status TEXT NOT NULL,
-                    attributes_json TEXT NOT NULL
+                    attributes_json TEXT NOT NULL,
+                    PRIMARY KEY (trace_id, span_id)
                 )
                 """
             )
             self.connection.commit()
+
+    def _migrate_legacy_schema(self) -> None:
+        """Rebuild a pre-existing `spans` table keyed on span_id alone into
+        one keyed on (trace_id, span_id). OTLP only guarantees span_id
+        uniqueness within a trace, not globally, so a global span_id
+        primary key let two different traces silently overwrite each
+        other's row on collision."""
+        columns = self.connection.execute("PRAGMA table_info(spans)").fetchall()
+        if not columns:
+            return
+        pk_columns = [row["name"] for row in columns if row["pk"]]
+        if pk_columns == ["trace_id", "span_id"] or pk_columns == ["span_id", "trace_id"]:
+            return
+        self.connection.execute("ALTER TABLE spans RENAME TO spans_legacy")
+        self.connection.execute(
+            """
+            CREATE TABLE spans (
+                trace_id TEXT NOT NULL,
+                span_id TEXT NOT NULL,
+                parent_span_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                start_ns INTEGER NOT NULL,
+                end_ns INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                attributes_json TEXT NOT NULL,
+                PRIMARY KEY (trace_id, span_id)
+            )
+            """
+        )
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO spans
+            SELECT trace_id, span_id, parent_span_id, name, start_ns, end_ns, status, attributes_json
+            FROM spans_legacy
+            """
+        )
+        self.connection.execute("DROP TABLE spans_legacy")
+        self.connection.commit()
 
     def ingest(self, spans: Iterable[dict[str, Any]]) -> int:
         rows = list(spans)
